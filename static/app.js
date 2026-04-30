@@ -155,13 +155,14 @@
     }
 
     // Quality badge
-    const quality = data.quality || '';
+    const quality = formatQuality(data);
     if (quality) {
       qualityBadge.style.display = 'inline-block';
       qualityBadge.textContent = quality;
       qualityBadge.className = 'badge';
-      if (quality.toLowerCase() === 'lossless') qualityBadge.classList.add('lossless');
-      if (quality.toLowerCase() === 'hires') qualityBadge.classList.add('hires');
+      const qRaw = (data.quality || '').toLowerCase();
+      if (qRaw.includes('lossless')) qualityBadge.classList.add('lossless');
+      if (qRaw.includes('hi_res') || qRaw.includes('hires')) qualityBadge.classList.add('hires');
     } else {
       qualityBadge.style.display = 'none';
     }
@@ -227,6 +228,39 @@
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
+  function formatQuality(data) {
+    const q = (data.quality || '').toLowerCase();
+    const fmt = data.format || '';
+    const bitrate = data.bitrate || '';
+
+    // Map raw quality strings to readable labels
+    const qualityMap = {
+      'hi_res_lossless': 'Hi-Res Lossless',
+      'hires_lossless': 'Hi-Res Lossless',
+      'lossless': 'Lossless',
+      'high': 'High',
+      'low': 'Low',
+      'aac': 'AAC',
+      'mp3': 'MP3',
+      'flac': 'FLAC',
+    };
+
+    let label = '';
+    for (const [key, val] of Object.entries(qualityMap)) {
+      if (q.includes(key)) {
+        label = val;
+        break;
+      }
+    }
+    if (!label) label = data.quality || '';
+
+    const parts = [label];
+    if (fmt) parts.push(`${fmt}-bit`);
+    if (bitrate) parts.push(`${bitrate} kbps`);
+
+    return parts.join(' · ');
   }
 
   // ==================== Devices ====================
