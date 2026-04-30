@@ -94,8 +94,6 @@
   }
 
   function handleMessage(msg) {
-    resetIdleTimer();
-
     switch (msg.type) {
       case 'devices':
         devices = msg.devices || [];
