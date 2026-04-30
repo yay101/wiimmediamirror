@@ -961,6 +961,23 @@ func main() {
 		}
 	}()
 
+	// Renew GENA subscriptions every 30 minutes
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		for range ticker.C {
+			devicesMu.RLock()
+			serverURL := fmt.Sprintf("http://10.1.1.20:%d/event", port)
+			for _, dev := range devices {
+				if dev.SID != "" {
+					dev.UnsubscribeEventing()
+					if err := dev.SubscribeEventing(serverURL); err == nil {
+						fmt.Printf("  Renewed subscription for %s\n", dev.Name)
+					}
+				}
+			}
+			devicesMu.RUnlock()
+		}
+	}()
 	addr := fmt.Sprintf(":%d", port)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "Server failed: %v\n", err)
