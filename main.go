@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"crypto/sha1"
 	"crypto/tls"
+	"embed"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"math/rand"
 	"net"
@@ -22,6 +24,9 @@ import (
 	"sync"
 	"time"
 )
+
+//go:embed static/*
+var staticFS embed.FS
 
 // ==================== WebSocket ====================
 
@@ -1012,12 +1017,26 @@ func main() {
 	http.HandleFunc("/discover", handleDiscover)
 	http.HandleFunc("/albumart", proxyAlbumArt)
 	http.HandleFunc("/event", handleGenaEvent)
-	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "."+r.URL.Path)
-	})
+
+	// Serve embedded static files
+	staticSubFS, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create static sub-FS: %v\n", err)
+		os.Exit(1)
+	}
+	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(staticSubFS)))
+	http.Handle("/static/", staticHandler)
+
+	// Serve embedded index.html at root
+	indexHTML, err := staticFS.ReadFile("static/index.html")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to read embedded index.html: %v\n", err)
+		os.Exit(1)
+	}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			http.ServeFile(w, r, "./static/index.html")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(indexHTML)
 		}
 	})
 

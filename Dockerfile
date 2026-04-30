@@ -17,9 +17,8 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
 
-# Copy binary and static assets
+# Copy binary (static assets are embedded)
 COPY --from=builder /build/wiimmediamirror .
-COPY --from=builder /build/static ./static
 
 # Expose default port
 EXPOSE 8080
