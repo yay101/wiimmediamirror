@@ -426,9 +426,8 @@ func (d *Device) SwitchSource(mode string) error {
 	return err
 }
 
-func (d *Device) Seek(target string) error {
-	// target format: HH:MM:SS or seconds
-	_, err := d.httpapiRequest(fmt.Sprintf("setPlayerCmd:seek:%s", target))
+func (d *Device) Seek(seconds int) error {
+	_, err := d.httpapiRequest(fmt.Sprintf("setPlayerCmd:seek:%d", seconds))
 	return err
 }
 
@@ -793,8 +792,8 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 				dev.SwitchSource(mode)
 			}
 		case "seek":
-			if target, ok := cmd["target"].(string); ok && target != "" {
-				dev.Seek(target)
+			if secs, ok := cmd["seconds"].(float64); ok {
+				dev.Seek(int(secs))
 			}
 		case "eq":
 			if eq, ok := cmd["value"].(float64); ok {

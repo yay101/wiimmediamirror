@@ -359,19 +359,39 @@
   });
 
   // Progress bar seek
-  progressBar.addEventListener('click', (e) => {
+  function seekFromEvent(e) {
     const rect = progressBar.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     if (currentState && currentState.duration) {
       const durSecs = parseTime(currentState.duration);
       const seekSecs = Math.round(pct * durSecs);
-      const h = Math.floor(seekSecs / 3600);
-      const m = Math.floor((seekSecs % 3600) / 60);
-      const s = seekSecs % 60;
-      const target = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-      // Use UPnP Seek via server
-      send('seek', { target });
+      send('seek', { seconds: seekSecs });
+      progressFill.style.width = `${pct * 100}%`;
+      relTimeEl.textContent = formatTime(seekSecs);
     }
+  }
+
+  let isSeeking = false;
+  progressBar.addEventListener('mousedown', (e) => {
+    isSeeking = true;
+    seekFromEvent(e);
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (isSeeking) seekFromEvent(e);
+  });
+  document.addEventListener('mouseup', () => {
+    isSeeking = false;
+  });
+
+  progressBar.addEventListener('touchstart', (e) => {
+    isSeeking = true;
+    seekFromEvent(e.touches[0]);
+  });
+  document.addEventListener('touchmove', (e) => {
+    if (isSeeking) seekFromEvent(e.touches[0]);
+  });
+  document.addEventListener('touchend', () => {
+    isSeeking = false;
   });
 
   // Show controls on any interaction
