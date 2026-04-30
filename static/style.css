@@ -247,6 +247,8 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 90vw;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Controls overlay */
