@@ -436,6 +436,20 @@ func (d *Device) SetEQ(eq int) error {
 	return err
 }
 
+func (d *Device) JoinGroup(masterIP string) error {
+	_, err := d.httpapiRequest(fmt.Sprintf("setPlayerCmd:slave_mode:open:%s", masterIP))
+	return err
+}
+
+func (d *Device) LeaveGroup() error {
+	_, err := d.httpapiRequest("setPlayerCmd:slave_mode:close")
+	return err
+}
+
+func (d *Device) GetGroupList() (string, error) {
+	return d.httpapiRequest("setPlayerCmd:group_list")
+}
+
 func xmlField(xml, tag string) string {
 	re := regexp.MustCompile(fmt.Sprintf(`<%s[^>]*>([^<]*)</%s>`, tag, tag))
 	matches := re.FindStringSubmatch(xml)
@@ -798,6 +812,19 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 		case "eq":
 			if eq, ok := cmd["value"].(float64); ok {
 				dev.SetEQ(int(eq))
+			}
+		case "group_join":
+			if masterIP, ok := cmd["masterIP"].(string); ok && masterIP != "" {
+				dev.JoinGroup(masterIP)
+			}
+		case "group_leave":
+			dev.LeaveGroup()
+		case "group_list":
+			if resp, err := dev.GetGroupList(); err == nil {
+				broadcast(map[string]interface{}{
+					"type": "group_list",
+					"data": resp,
+				})
 			}
 		case "refresh":
 			dev.GetInfoEx()
