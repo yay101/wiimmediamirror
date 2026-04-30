@@ -161,6 +161,7 @@ type Device struct {
 	PlayQueueURL  string `json:"-"`
 	SSID          string `json:"ssid"`
 	SID           string `json:"-"`
+	HasHTTPAPI    bool   `json:"-"`
 	Volume        int    `json:"volume"`
 	Mute          bool   `json:"mute"`
 	State         string `json:"state"`
@@ -218,6 +219,20 @@ func (d *Device) GetInfoEx() error {
 		}
 	}
 
+	// If UPnP volume is 0 or missing, try httpapi.asp
+	if d.Volume <= 0 {
+		if status, err := d.GetPlayerStatus(); err == nil {
+			if vol, ok := status["vol"]; ok {
+				if v, err := strconv.Atoi(fmt.Sprint(vol)); err == nil {
+					d.Volume = v
+				}
+			}
+			if mute, ok := status["mute"]; ok {
+				d.Mute = mute == "1" || mute == 1
+			}
+		}
+	}
+
 	// Extract metadata first
 	meta := xmlField(resp, "TrackMetaData")
 	if meta != "" {
@@ -261,8 +276,15 @@ func (d *Device) GetVolume() error {
 }
 
 func (d *Device) SetVolume(vol int) error {
+	// Try httpapi.asp first (works for all devices including fixed volume mode)
+	err := d.SetVolumeHTTPAPI(vol)
+	if err == nil && d.Volume == vol {
+		return nil
+	}
+
+	// Fallback to UPnP
 	body := fmt.Sprintf(`<u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>%d</DesiredVolume></u:SetVolume>`, vol)
-	_, err := d.soapRequest("/upnp/control/rendercontrol1", "SetVolume", body)
+	_, err = d.soapRequest("/upnp/control/rendercontrol1", "SetVolume", body)
 	if err == nil {
 		d.Volume = vol
 	}
@@ -335,6 +357,46 @@ func (d *Device) SetMute(mute bool) error {
 	return err
 }
 
+func (d *Device) httpapiRequest(command string) (string, error) {
+	url := fmt.Sprintf("https://%s/httpapi.asp?command=%s", d.IP, command)
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return string(body), nil
+}
+
+func (d *Device) SetVolumeHTTPAPI(vol int) error {
+	resp, err := d.httpapiRequest(fmt.Sprintf("setPlayerCmd:vol:%d", vol))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(resp) == "OK" {
+		d.Volume = vol
+	}
+	return nil
+}
+
+func (d *Device) GetPlayerStatus() (map[string]interface{}, error) {
+	resp, err := d.httpapiRequest("getPlayerStatus")
+	if err != nil {
+		return nil, err
+	}
+	var status map[string]interface{}
+	if err := json.Unmarshal([]byte(resp), &status); err != nil {
+		return nil, err
+	}
+	return status, nil
+}
+
 func (d *Device) Play() error {
 	body := `<u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID><Speed>1</Speed></u:Play>`
 	_, err := d.soapRequest(d.ControlURL, "Play", body)
@@ -360,12 +422,18 @@ func (d *Device) Previous() error {
 }
 
 func (d *Device) SwitchSource(mode string) error {
-	client := &http.Client{
-		Timeout:   5 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
-	}
-	url := fmt.Sprintf("https://%s:443/httpapi.asp?command=setPlayerCmd:switchmode:%s", d.IP, mode)
-	_, err := client.Get(url)
+	_, err := d.httpapiRequest(fmt.Sprintf("setPlayerCmd:switchmode:%s", mode))
+	return err
+}
+
+func (d *Device) Seek(target string) error {
+	// target format: HH:MM:SS or seconds
+	_, err := d.httpapiRequest(fmt.Sprintf("setPlayerCmd:seek:%s", target))
+	return err
+}
+
+func (d *Device) SetEQ(eq int) error {
+	_, err := d.httpapiRequest(fmt.Sprintf("setPlayerCmd:eq:%d", eq))
 	return err
 }
 
@@ -723,6 +791,14 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 		case "switch":
 			if mode, ok := cmd["mode"].(string); ok && mode != "" {
 				dev.SwitchSource(mode)
+			}
+		case "seek":
+			if target, ok := cmd["target"].(string); ok && target != "" {
+				dev.Seek(target)
+			}
+		case "eq":
+			if eq, ok := cmd["value"].(float64); ok {
+				dev.SetEQ(int(eq))
 			}
 		case "refresh":
 			dev.GetInfoEx()
