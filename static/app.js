@@ -43,6 +43,8 @@
   const durationEl = $('#duration');
   const sourceBtn = $('#source-btn');
   const sourceList = $('#source-list');
+  const eqBtn = $('#eq-btn');
+  const eqList = $('#eq-list');
 
   // ==================== WebSocket ====================
   function connect() {
@@ -323,6 +325,12 @@
     toggleDropdown(sourceList);
   });
 
+  // EQ selector
+  eqBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleDropdown(eqList);
+  });
+
   // Close dropdowns on outside click
   document.addEventListener('click', closeAllDropdowns);
 
@@ -331,7 +339,13 @@
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       const mode = item.dataset.mode;
-      send('switch', { mode });
+      if (mode) {
+        send('switch', { mode });
+      }
+      const eq = item.dataset.eq;
+      if (eq !== undefined) {
+        send('eq', { value: parseInt(eq) });
+      }
       closeAllDropdowns();
     });
   });
