@@ -115,12 +115,8 @@
   }
 
   function updateConnectionStatus(connected) {
-    let el = $('#connection-status');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'connection-status';
-      document.body.appendChild(el);
-    }
+    const el = $('#connection-status');
+    if (!el) return;
     el.className = connected ? 'connected' : 'disconnected';
     el.textContent = connected ? 'Connected' : 'Disconnected';
   }

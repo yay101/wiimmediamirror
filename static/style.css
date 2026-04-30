@@ -46,9 +46,13 @@ html, body {
   font-weight: 500;
   color: var(--text-secondary);
   max-width: 200px;
+  min-width: 0;
+  flex: 1;
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin: 0 10px;
 }
 
 .icon-btn {
@@ -422,17 +426,22 @@ body.idle #track-info {
   opacity: 0.3;
 }
 
+/* Topbar right group */
+#topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 /* Connection status */
 #connection-status {
-  position: fixed;
-  top: 12px;
-  right: 12px;
   padding: 6px 12px;
   border-radius: 20px;
   font-size: 12px;
   font-weight: 500;
-  z-index: 300;
   transition: opacity 0.3s;
+  white-space: nowrap;
 }
 
 #connection-status.connected {
