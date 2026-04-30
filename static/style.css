@@ -1,0 +1,486 @@
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0a0a0a;
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-hover: rgba(255, 255, 255, 0.1);
+  --text: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --accent: #8b5cf6;
+  --accent-glow: rgba(139, 92, 246, 0.3);
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+}
+
+/* Top bar */
+#topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  z-index: 100;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+  transition: opacity 0.4s ease;
+}
+
+#device-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: var(--surface);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.icon-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* Dropdown */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  min-width: 220px;
+  max-height: 400px;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 200;
+}
+
+.dropdown-content.open {
+  display: block;
+}
+
+.dropdown-header {
+  padding: 10px 14px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.device-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.15s;
+}
+
+.device-item:hover {
+  background: var(--surface-hover);
+}
+
+.device-item.selected {
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+
+.device-item .status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+}
+
+.device-item .info {
+  overflow: hidden;
+}
+
+.device-item .name {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-item .detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Album art */
+#artwork {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  position: relative;
+}
+
+#art-container {
+  position: relative;
+  width: min(80vw, 80vh);
+  height: min(80vw, 80vh);
+  max-width: 600px;
+  max-height: 600px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+#art-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+
+#art-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  gap: 12px;
+}
+
+#art-placeholder svg {
+  opacity: 0.3;
+}
+
+#art-placeholder p {
+  font-size: 16px;
+  opacity: 0.5;
+}
+
+/* Track info */
+#track-info {
+  text-align: center;
+  padding: 0 24px;
+  transition: opacity 0.4s ease;
+}
+
+#title {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+#artist {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+#album {
+  font-size: 14px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  margin-bottom: 8px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+
+.badge.lossless {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.badge.hires {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.text-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90vw;
+}
+
+/* Controls overlay */
+#controls {
+  padding: 16px 24px 24px;
+  transition: opacity 0.4s ease;
+}
+
+/* Progress bar */
+#progress-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+#progress-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+}
+
+#progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s linear;
+}
+
+#progress-bar:hover #progress-fill {
+  height: 6px;
+  margin-top: -1px;
+}
+
+/* Transport controls */
+#transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.transport-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 50%;
+  width: 56px;
+  height: 56px;
+  transition: all 0.2s;
+}
+
+.transport-btn:hover {
+  background: var(--surface-hover);
+}
+
+.transport-btn.primary {
+  width: 64px;
+  height: 64px;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.transport-btn.primary:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+}
+
+/* Extras row */
+#extras {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#volume-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 120px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+#volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text);
+  cursor: pointer;
+}
+
+#volume-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text);
+  border: none;
+  cursor: pointer;
+}
+
+#volume-val {
+  font-size: 13px;
+  color: var(--text-secondary);
+  min-width: 28px;
+}
+
+/* Source dropdown */
+.source-dropdown {
+  left: auto;
+  right: 0;
+}
+
+.source-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+.source-item:hover {
+  background: var(--surface-hover);
+}
+
+/* Fade targets for controls overlay */
+.fade-target {
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+
+body.idle .fade-target {
+  opacity: 0.15;
+}
+
+body.idle #controls {
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.idle #topbar {
+  opacity: 0;
+}
+
+body.idle #track-info {
+  opacity: 0.3;
+}
+
+/* Connection status */
+#connection-status {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  z-index: 300;
+  transition: opacity 0.3s;
+}
+
+#connection-status.connected {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+#connection-status.disconnected {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  #art-container {
+    width: 85vw;
+    height: 85vw;
+  }
+
+  #title {
+    font-size: 20px;
+  }
+
+  #artist {
+    font-size: 14px;
+  }
+
+  .transport-btn {
+    width: 48px;
+    height: 48px;
+  }
+
+  .transport-btn.primary {
+    width: 56px;
+    height: 56px;
+  }
+
+  #transport {
+    gap: 16px;
+  }
+
+  #volume-slider {
+    width: 80px;
+  }
+}
+
+/* Ambient glow behind album art */
+#artwork::before {
+  content: '';
+  position: absolute;
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  background: var(--accent-glow);
+  filter: blur(80px);
+  opacity: 0.4;
+  pointer-events: none;
+}
