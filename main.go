@@ -787,6 +787,19 @@ func main() {
 		}
 		devicesMu.Unlock()
 
+		// Broadcast devices to connected clients
+		devicesMu.RLock()
+		devList := make([]Device, 0, len(devices))
+		for _, d := range devices {
+			devList = append(devList, *d)
+		}
+		devicesMu.RUnlock()
+		broadcast(map[string]interface{}{
+			"type":     "devices",
+			"devices":  devList,
+			"selected": selected,
+		})
+
 		// Subscribe to events for all devices
 		serverURL := fmt.Sprintf("http://10.1.1.20:%d/event", port)
 		for _, d := range found {
@@ -821,7 +834,7 @@ func main() {
 			for _, d := range devices {
 				devList = append(devList, *d)
 			}
-			devicesMu.RUnlock()
+		devicesMu.RUnlock()
 			broadcast(map[string]interface{}{
 				"type":     "devices",
 				"devices":  devList,
@@ -846,9 +859,8 @@ func main() {
 
 	// Cleanup dead clients periodically
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(5 * time.Minute)
 		for range ticker.C {
-			// Discover every 5 minutes
 			found := discoverDevices()
 			devicesMu.Lock()
 			for _, d := range found {
@@ -858,6 +870,18 @@ func main() {
 				}
 			}
 			devicesMu.Unlock()
+
+			devicesMu.RLock()
+			devList := make([]Device, 0, len(devices))
+			for _, d := range devices {
+				devList = append(devList, *d)
+			}
+			devicesMu.RUnlock()
+			broadcast(map[string]interface{}{
+				"type":     "devices",
+				"devices":  devList,
+				"selected": selected,
+			})
 		}
 	}()
 
