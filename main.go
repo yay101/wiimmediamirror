@@ -160,6 +160,7 @@ type Device struct {
 	EventURL      string `json:"-"`
 	PlayQueueURL  string `json:"-"`
 	SSID          string `json:"ssid"`
+	SID           string `json:"-"`
 	Volume        int    `json:"volume"`
 	Mute          bool   `json:"mute"`
 	State         string `json:"state"`
@@ -209,23 +210,29 @@ func (d *Device) GetInfoEx() error {
 	}
 
 	d.State = xmlField(resp, "CurrentTransportState")
-	d.Title = xmlField(resp, "dc:title")
-	d.Artist = xmlField(resp, "dc:creator")
-	d.Album = xmlField(resp, "upnp:album")
-	d.Duration = xmlField(resp, "TrackDuration")
-	d.RelTime = xmlField(resp, "RelTime")
 
-	// Extract metadata
+	// Parse volume from response (GetInfoEx returns CurrentVolume)
+	if volStr := xmlField(resp, "CurrentVolume"); volStr != "" {
+		if vol, err := strconv.Atoi(volStr); err == nil {
+			d.Volume = vol
+		}
+	}
+
+	// Extract metadata first
 	meta := xmlField(resp, "TrackMetaData")
 	if meta != "" {
-		// Unescape XML
+		// Unescape XML (order matters: &amp; first)
+		meta = strings.ReplaceAll(meta, "&amp;", "&")
 		meta = strings.ReplaceAll(meta, "&lt;", "<")
 		meta = strings.ReplaceAll(meta, "&gt;", ">")
-		meta = strings.ReplaceAll(meta, "&amp;", "&")
 		meta = strings.ReplaceAll(meta, "&quot;", "\"")
 
 		d.Title = xmlField(meta, "dc:title")
-		d.Artist = xmlField(meta, "dc:creator")
+		artist := xmlField(meta, "upnp:artist")
+		if artist == "" {
+			artist = xmlField(meta, "dc:creator")
+		}
+		d.Artist = artist
 		d.Album = xmlField(meta, "upnp:album")
 		d.AlbumArtURL = xmlField(meta, "upnp:albumArtURI")
 		d.TrackSource = xmlField(meta, "song:source")
@@ -234,8 +241,8 @@ func (d *Device) GetInfoEx() error {
 		d.Bitrate = xmlField(meta, "song:bitrate")
 	}
 
-	// Get volume
-	d.GetVolume()
+	d.Duration = xmlField(resp, "TrackDuration")
+	d.RelTime = xmlField(resp, "RelTime")
 
 	return nil
 }
@@ -262,6 +269,59 @@ func (d *Device) SetVolume(vol int) error {
 	return err
 }
 
+func (d *Device) SubscribeEventing(serverURL string) error {
+	// Check current subscription first
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("SUBSCRIBE", fmt.Sprintf("http://%s:%d%s", d.IP, d.Port, d.EventURL), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("HOST", fmt.Sprintf("%s:%d", d.IP, d.Port))
+	req.Header.Set("NT", "upnp:event")
+	req.Header.Set("TIMEOUT", "Second-3600")
+	req.Header.Set("CALLBACK", fmt.Sprintf("<%s>", serverURL))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// Try without NT (renewal)
+		req2, _ := http.NewRequest("SUBSCRIBE", fmt.Sprintf("http://%s:%d%s", d.IP, d.Port, d.EventURL), nil)
+		req2.Header.Set("HOST", fmt.Sprintf("%s:%d", d.IP, d.Port))
+		req2.Header.Set("TIMEOUT", "Second-3600")
+		req2.Header.Set("CALLBACK", fmt.Sprintf("<%s>", serverURL))
+		resp, err = client.Do(req2)
+		if err != nil {
+			return fmt.Errorf("subscribe failed: %v", err)
+		}
+	}
+	defer resp.Body.Close()
+
+	sid := resp.Header.Get("SID")
+	if sid != "" {
+		d.SID = sid
+	}
+	return nil
+}
+
+func (d *Device) UnsubscribeEventing() error {
+	if d.SID == "" {
+		return nil
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("UNSUBSCRIBE", fmt.Sprintf("http://%s:%d%s", d.IP, d.Port, d.EventURL), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("HOST", fmt.Sprintf("%s:%d", d.IP, d.Port))
+	req.Header.Set("SID", d.SID)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("unsubscribe failed: %v", err)
+	}
+	defer resp.Body.Close()
+	d.SID = ""
+	return nil
+}
 func (d *Device) SetMute(mute bool) error {
 	m := 0
 	if mute {
@@ -321,32 +381,35 @@ func xmlField(xml, tag string) string {
 // ==================== Device Discovery ====================
 
 func discoverDevices() []Device {
-	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{
-		IP:   net.ParseIP("239.255.255.250"),
-		Port: 1900,
-	})
+	conn, err := net.ListenPacket("udp4", ":0")
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Discovery listen error: %v\n", err)
 		return nil
 	}
 	defer conn.Close()
 
+	addr, err := net.ResolveUDPAddr("udp4", "239.255.255.250:1900")
+	if err != nil {
+		return nil
+	}
+
 	msg := "M-SEARCH * HTTP/1.1\r\n" +
 		"HOST: 239.255.255.250:1900\r\n" +
 		"MAN: \"ssdp:discover\"\r\n" +
-		"MX: 3\r\n" +
+		"MX: 2\r\n" +
 		"ST: ssdp:all\r\n" +
 		"\r\n"
 
-	conn.SetDeadline(time.Now().Add(100 * time.Millisecond))
-	conn.Write([]byte(msg))
+	conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+	conn.WriteTo([]byte(msg), addr)
 
 	var devices []Device
 	found := make(map[string]bool)
 	buf := make([]byte, 4096)
 
-	for i := 0; i < 10; i++ {
+	for {
 		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		n, _, err := conn.ReadFromUDP(buf)
+		n, _, err := conn.ReadFrom(buf)
 		if err != nil {
 			break
 		}
@@ -359,8 +422,8 @@ func discoverDevices() []Device {
 			continue
 		}
 
-		parsed, _ := url.Parse(location)
-		if parsed == nil || found[parsed.Host] {
+		parsed, err := url.Parse(location)
+		if err != nil || parsed == nil || found[parsed.Host] {
 			continue
 		}
 		found[parsed.Host] = true
@@ -371,9 +434,11 @@ func discoverDevices() []Device {
 			port, _ = strconv.Atoi(p[1])
 		}
 
-		// Fetch description
+		fmt.Printf("Discovered: %s (%s) at %s\n", server, location, parsed.Host)
+
 		dev := fetchDescription(location, ip, port)
 		if dev != nil {
+			fmt.Printf("  -> %s (%s)\n", dev.Name, dev.Model)
 			devices = append(devices, *dev)
 		}
 	}
@@ -382,11 +447,17 @@ func discoverDevices() []Device {
 }
 
 func extractHeader(resp, header string) string {
-	re := regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(header) + `:\s*(.+)$`)
-	for _, line := range strings.Split(resp, "\r\n") {
-		matches := re.FindStringSubmatch(line)
-		if len(matches) > 1 {
-			return strings.TrimSpace(matches[1])
+	lines := strings.Split(resp, "\r\n")
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		// Case-insensitive prefix match
+		if len(line) >= len(header)+1 {
+			prefix := line[:len(header)]
+			if strings.EqualFold(prefix, header) && line[len(header)] == ':' {
+				return strings.TrimSpace(line[len(header)+1:])
+			}
 		}
 	}
 	return ""
@@ -452,6 +523,51 @@ func proxyAlbumArt(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
+// ==================== GENA Event Handler ====================
+
+func handleGenaEvent(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	xml := string(body)
+
+	devicesMu.RLock()
+	var dev *Device
+	for _, d := range devices {
+		if d.SID != "" && r.Header.Get("SID") == d.SID {
+			dev = d
+			break
+		}
+	}
+	devicesMu.RUnlock()
+
+	if dev == nil {
+		w.WriteHeader(200)
+		return
+	}
+
+	// Parse state change
+	if state := xmlField(xml, "LastChange"); state != "" {
+		// WiiM sends state in LastChange property
+		devicesMu.Lock()
+		dev.State = xmlField(state, "TransportState")
+		if vol := xmlField(state, "Volume"); vol != "" {
+			if v, _ := strconv.Atoi(vol); v >= 0 {
+				dev.Volume = v
+			}
+		}
+		devicesMu.Unlock()
+	}
+
+	// Fallback: poll for full metadata on any event
+	if err := dev.GetInfoEx(); err == nil {
+		broadcast(map[string]interface{}{
+			"type": "state",
+			"data": dev,
+		})
+	}
+
+	w.WriteHeader(200)
+}
+
 // ==================== Server ====================
 
 var (
@@ -472,6 +588,21 @@ func broadcast(msg map[string]interface{}) {
 		}
 	}
 	clientsMu.RUnlock()
+}
+
+func subscribeToDevice(dev *Device, serverURL string) {
+	if err := dev.SubscribeEventing(serverURL); err != nil {
+		fmt.Printf("  Eventing failed for %s: %v\n", dev.Name, err)
+		return
+	}
+	fmt.Printf("  Subscribed to %s events (SID: %s)\n", dev.Name, dev.SID[:min(20, len(dev.SID))]+"...")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func pollDevice() {
@@ -655,6 +786,17 @@ func main() {
 			}
 		}
 		devicesMu.Unlock()
+
+		// Subscribe to events for all devices
+		serverURL := fmt.Sprintf("http://10.1.1.20:%d/event", port)
+		for _, d := range found {
+			devicesMu.RLock()
+			dev := devices[d.IP]
+			devicesMu.RUnlock()
+			if dev != nil {
+				go subscribeToDevice(dev, serverURL)
+			}
+		}
 	}()
 
 	// Poll selected device
@@ -692,6 +834,7 @@ func main() {
 	http.HandleFunc("/ws", handleWS)
 	http.HandleFunc("/discover", handleDiscover)
 	http.HandleFunc("/albumart", proxyAlbumArt)
+	http.HandleFunc("/event", handleGenaEvent)
 	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "."+r.URL.Path)
 	})
