@@ -307,16 +307,28 @@ html, body {
 #transport {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 32px;
   margin-bottom: 16px;
 }
 
+#extras {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-start;
+}
+
 #playback {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 24px;
+}
+
+#transport::after {
+  content: '';
+  flex: 1;
 }
 
 .transport-btn {
@@ -347,13 +359,6 @@ html, body {
 .transport-btn.primary:hover {
   transform: scale(1.05);
   box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
-}
-
-/* Extras row (inside transport) */
-#extras {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 #volume-control {
