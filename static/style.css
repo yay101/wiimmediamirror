@@ -375,7 +375,12 @@ html, body {
   min-width: 28px;
 }
 
-/* Source dropdown */
+/* Source/EQ dropdowns in bottom controls - open upward */
+#controls .dropdown-content {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
 .source-dropdown {
   left: auto;
   right: 0;

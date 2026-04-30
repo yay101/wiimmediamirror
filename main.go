@@ -25,13 +25,13 @@ import (
 
 // ==================== WebSocket ====================
 
-type WSConn struct {
+type websocketconn struct {
 	conn   net.Conn
 	reader *bufio.ReadWriter
 	mu     sync.Mutex
 }
 
-func upgradeWS(w http.ResponseWriter, r *http.Request) (*WSConn, error) {
+func upgradeWS(w http.ResponseWriter, r *http.Request) (*websocketconn, error) {
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		return nil, fmt.Errorf("server does not support hijacking")
@@ -42,109 +42,164 @@ func upgradeWS(w http.ResponseWriter, r *http.Request) (*WSConn, error) {
 		return nil, fmt.Errorf("not a websocket handshake")
 	}
 
-	h := sha1.New()
-	h.Write([]byte(key + "258EAFA5-E914-47DA-95CA-5AB5AC782D0B"))
-	accept := base64.StdEncoding.EncodeToString(h.Sum(nil))
+	hash := ComputeAcceptKey(key)
 
 	conn, bufrw, err := hj.Hijack()
 	if err != nil {
 		return nil, err
 	}
 
-	resp := "HTTP/1.1 101 Switching Protocols\r\n" +
-		"Upgrade: websocket\r\n" +
-		"Connection: Upgrade\r\n" +
-		"Sec-WebSocket-Accept: " + accept + "\r\n" +
-		"\r\n"
+	wsConn := &websocketconn{conn: conn, reader: bufrw}
 
-	if _, err := conn.Write([]byte(resp)); err != nil {
+	lines := []string{
+		"HTTP/1.1 101 Switching Protocols",
+		"Upgrade: websocket",
+		"Connection: Upgrade",
+		"Sec-WebSocket-Accept: " + hash,
+		"", "",
+	}
+	resp := strings.Join(lines, "\r\n")
+	if _, err := bufrw.WriteString(resp); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := bufrw.Flush(); err != nil {
 		conn.Close()
 		return nil, err
 	}
 
-	return &WSConn{conn: conn, reader: bufrw}, nil
+	return wsConn, nil
 }
 
-func (ws *WSConn) ReadMessage() ([]byte, error) {
+func (c *websocketconn) ReadMessage() ([]byte, error) {
 	// Read first 2 bytes
-	header := make([]byte, 2)
-	if _, err := io.ReadFull(ws.reader, header); err != nil {
+	head, err := c.read(2)
+	if err != nil {
 		return nil, err
 	}
 
-	payloadLen := int(header[1] & 0x7F)
-	masked := (header[1] & 0x80) != 0
-	offset := 2
+	var length uint64
+	length = uint64(head[1] & 0x7F)
 
-	if payloadLen == 126 {
-		ext := make([]byte, 2)
-		if _, err := io.ReadFull(ws.reader, ext); err != nil {
+	if length == 126 {
+		data, err := c.read(2)
+		if err != nil {
 			return nil, err
 		}
-		payloadLen = int(binary.BigEndian.Uint16(ext))
-		offset += 2
-	} else if payloadLen == 127 {
-		ext := make([]byte, 8)
-		if _, err := io.ReadFull(ws.reader, ext); err != nil {
+		length = uint64(binary.BigEndian.Uint16(data))
+	} else if length == 127 {
+		data, err := c.read(8)
+		if err != nil {
 			return nil, err
 		}
-		payloadLen = int(binary.BigEndian.Uint64(ext))
-		offset += 8
+		length = binary.BigEndian.Uint64(data)
 	}
 
-	var maskKey []byte
-	if masked {
-		maskKey = make([]byte, 4)
-		if _, err := io.ReadFull(ws.reader, maskKey); err != nil {
+	isMasked := (head[1] & 0x80) == 0x80
+	var mask []byte
+	if isMasked {
+		mask, err = c.read(4)
+		if err != nil {
 			return nil, err
 		}
-		offset += 4
 	}
 
-	payload := make([]byte, payloadLen)
-	if _, err := io.ReadFull(ws.reader, payload); err != nil {
-		return nil, err
-	}
-
-	if masked {
-		for i := range payload {
-			payload[i] ^= maskKey[i%4]
+	var payload []byte
+	if length > 0 {
+		payload, err = c.read(int(length))
+		if err != nil {
+			return nil, err
 		}
+		if isMasked {
+			for i := uint64(0); i < length; i++ {
+				payload[i] ^= mask[i%4]
+			}
+		}
+	} else {
+		payload = []byte{}
 	}
 
 	return payload, nil
 }
 
-func (ws *WSConn) WriteMessage(data []byte) error {
-	ws.mu.Lock()
-	defer ws.mu.Unlock()
+func (c *websocketconn) WriteMessage(data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	header := []byte{0x81} // fin=1, text frame
+	length := len(data)
+	frame := make([]byte, 2)
+	frame[0] = 0x81 // text, final
 
-	payloadLen := len(data)
-	if payloadLen < 126 {
-		header = append(header, byte(payloadLen))
-	} else if payloadLen < 65536 {
-		header = append(header, 126)
-		ext := make([]byte, 2)
-		binary.BigEndian.PutUint16(ext, uint16(payloadLen))
-		header = append(header, ext...)
+	if length <= 125 {
+		frame[1] = byte(length)
+	} else if length <= 65535 {
+		frame[1] = 126
+		size := make([]byte, 2)
+		binary.BigEndian.PutUint16(size, uint16(length))
+		frame = append(frame, size...)
 	} else {
-		header = append(header, 127)
-		ext := make([]byte, 8)
-		binary.BigEndian.PutUint64(ext, uint64(payloadLen))
-		header = append(header, ext...)
+		frame[1] = 127
+		size := make([]byte, 8)
+		binary.BigEndian.PutUint64(size, uint64(length))
+		frame = append(frame, size...)
 	}
 
-	if _, err := ws.conn.Write(header); err != nil {
+	frame = append(frame, data...)
+	if _, err := c.reader.Write(frame); err != nil {
 		return err
 	}
-	_, err := ws.conn.Write(data)
-	return err
+	return c.reader.Flush()
 }
 
-func (ws *WSConn) Close() error {
-	return ws.conn.Close()
+func (c *websocketconn) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}
+
+func (c *websocketconn) read(size int) ([]byte, error) {
+	data := make([]byte, 0, size)
+	for len(data) < size {
+		sz := 4096
+		remaining := size - len(data)
+		if sz > remaining {
+			sz = remaining
+		}
+		temp := make([]byte, sz)
+		n, err := c.reader.Read(temp)
+		if err != nil {
+			if n > 0 {
+				data = append(data, temp[:n]...)
+			}
+			if len(data) >= size {
+				return data, nil
+			}
+			return data, err
+		}
+		data = append(data, temp[:n]...)
+	}
+	return data, nil
+}
+
+// ==================== Protocol (inline from websocket_protocol.go) ====================
+
+const ( // WebSocket opcodes
+	OpContinuation byte = 0x0
+	OpText         byte = 0x1
+	OpBinary       byte = 0x2
+	OpClose        byte = 0x8
+	OpPing         byte = 0x9
+	OpPong         byte = 0xA
+)
+
+func ComputeAcceptKey(key string) string {
+	h := sha1.New()
+	h.Write([]byte(key))
+	h.Write([]byte("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
 // ==================== UPnP Device ====================
@@ -653,7 +708,7 @@ func handleGenaEvent(w http.ResponseWriter, r *http.Request) {
 
 var (
 	devices   = make(map[string]*Device)
-	clients   = make(map[*WSConn]bool)
+	clients   = make(map[*websocketconn]bool)
 	clientsMu sync.RWMutex
 	devicesMu sync.RWMutex
 	selected  string
@@ -706,8 +761,10 @@ func pollDevice() {
 }
 
 func handleWS(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("[ws] Upgrade request from %s\n", r.RemoteAddr)
 	ws, err := upgradeWS(w, r)
 	if err != nil {
+		fmt.Printf("[ws] Upgrade failed: %v\n", err)
 		http.Error(w, "upgrade failed", http.StatusBadRequest)
 		return
 	}
@@ -715,6 +772,14 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 	clientsMu.Lock()
 	clients[ws] = true
 	clientsMu.Unlock()
+
+	defer func() {
+		clientsMu.Lock()
+		delete(clients, ws)
+		clientsMu.Unlock()
+		ws.Close()
+		fmt.Printf("[ws] Connection closed\n")
+	}()
 
 	// Send initial state
 	devicesMu.RLock()
@@ -741,10 +806,7 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 	for {
 		msg, err := ws.ReadMessage()
 		if err != nil {
-			clientsMu.Lock()
-			delete(clients, ws)
-			clientsMu.Unlock()
-			ws.Close()
+			fmt.Printf("[ws] Read error: %v\n", err)
 			return
 		}
 

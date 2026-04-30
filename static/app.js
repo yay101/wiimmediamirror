@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+  console.log('[app] WiiM Media Mirror loading...');
+
   // ==================== State ====================
   let ws = null;
   let reconnectTimer = null;
@@ -13,7 +15,11 @@
   let overlayTimeout = 4000; // ms before controls fade
 
   // ==================== DOM Elements ====================
-  const $ = (sel) => document.querySelector(sel);
+  const $ = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) console.warn(`[app] Element not found: ${sel}`);
+    return el;
+  };
   const $$ = (sel) => document.querySelectorAll(sel);
 
   const artImg = $('#art-img');
@@ -49,30 +55,35 @@
   // ==================== WebSocket ====================
   function connect() {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${proto}//${window.location.host}/ws`);
+    const url = `${proto}//${window.location.host}/ws`;
+    console.log(`[app] Connecting to ${url}...`);
+    ws = new WebSocket(url);
 
     ws.onopen = () => {
+      console.log('[app] WebSocket connected');
       updateConnectionStatus(true);
       resetIdleTimer();
     };
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
+      console.log(`[app] WebSocket closed (code=${e.code}, reason=${e.reason})`);
       updateConnectionStatus(false);
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, 2000);
     };
 
     ws.onmessage = (e) => {
+      console.log(`[app] Message received: ${e.data.slice(0, 50)}...`);
       try {
         const msg = JSON.parse(e.data);
         handleMessage(msg);
       } catch (err) {
-        console.error('Parse error:', err);
+        console.error('[app] Parse error:', err);
       }
     };
 
-    ws.onerror = () => {
-      ws.close();
+    ws.onerror = (e) => {
+      console.error('[app] WebSocket error:', e);
     };
   }
 
@@ -414,6 +425,8 @@
   });
 
   // ==================== Init ====================
+  console.log('[app] Initializing...', window.location.href);
   connect();
   resetIdleTimer();
+  console.log('[app] Init complete');
 })();
